@@ -1,6 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
-import { glob } from "glob";
+import { globSync } from "glob";
 import { ImportTracker } from "./tsHelper";
 import { findCycles } from "./findCycles";
 
@@ -26,9 +26,11 @@ function hasUncheckedImport(
 }
 
 export async function forEachFileInSrc(srcRoot: string): Promise<string[]> {
-  const files = await glob(`${srcRoot}/**/*.ts?(x)`);
+  const files = globSync(`${srcRoot}/**/*.ts?(x)`);
   return files.filter(considerFile);
 }
+
+type StringSet = Set<string>;
 
 /**
  * This function returns the list of files that could be whitelisted next, because
@@ -36,13 +38,14 @@ export async function forEachFileInSrc(srcRoot: string): Promise<string[]> {
  */
 export async function listStrictNullCheckEligibleFiles(
   srcRoot: string,
-  checkedFiles: Set<string>
+  checkedFiles: StringSet,
+  excluded: StringSet
 ): Promise<string[]> {
   const importsTracker = new ImportTracker(srcRoot);
 
   const files = await forEachFileInSrc(srcRoot);
   return files.filter((file) => {
-    if (checkedFiles.has(file)) {
+    if (excluded.has(file) || checkedFiles.has(file)) {
       return false;
     }
     return !hasUncheckedImport(file, importsTracker, checkedFiles);
@@ -104,38 +107,44 @@ interface TSConfig {
 export async function getCheckedFiles(
   tsconfigPath: string,
   srcRoot: string
-): Promise<Set<string>> {
+): Promise<{ checkedFiles: StringSet; excluded: StringSet }> {
   const tsconfig = JSON.parse(
     fs.readFileSync(tsconfigPath).toString()
   ) as TSConfig;
+  console.log("getStrictNullCheckEligibleFiles.ts:111: tsconfig");
+  console.dir(tsconfig, { depth: null, showHidden: false, colors: true });
 
   const set = new Set<string>();
 
-  await Promise.all(
-    (tsconfig.include || []).map(async (file) => {
-      const files = await glob(path.join(srcRoot, file));
-      for (const file of files) {
-        if (considerFile(file)) {
-          set.add(file);
-        }
-      }
-    })
-  );
+  const excluded = new Set<string>();
 
-  await Promise.all(
-    (tsconfig.exclude || []).map(async (file) => {
-      const files = await glob(path.join(srcRoot, file));
-      for (const file of files) {
-        set.delete(file);
+  (tsconfig.include ?? []).map((file) => {
+    const files = globSync(path.join(srcRoot, file));
+    for (const file of files) {
+      if (considerFile(file)) {
+        set.add(file);
       }
-    })
-  );
+    }
+  });
 
-  (tsconfig.files || []).forEach((include) => {
+  (tsconfig.exclude ?? []).map((file) => {
+    const files = globSync(path.join(srcRoot, file));
+    console.log("getStrictNullCheckEligibleFiles.ts:138: files");
+    console.dir(files, { depth: null, showHidden: false, colors: true });
+    for (const file of files) {
+      excluded.add(file);
+    }
+  });
+
+  excluded.forEach((file) => {
+    set.delete(file);
+  });
+
+  (tsconfig.files ?? []).forEach((include) => {
     if (considerFile(include)) {
       set.add(path.join(srcRoot, include));
     }
   });
 
-  return set;
+  return { checkedFiles: set, excluded };
 }
