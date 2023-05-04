@@ -2,9 +2,10 @@
   "compilerOptions": {
     "target": "ESNext",
     "module": "commonjs",
-    "moduleResolution": "node",
+    "moduleResolution": "node"
   },
-  "exclude": [
-    "../node_modules"
-  ]
+  "exclude": ["../node_modules"],
+  "ts-node": {
+    "files": true
+  }
 }
